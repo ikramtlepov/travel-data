@@ -12,31 +12,34 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // Secret key for JWT
-const SECRET_KEY = "your_secret_key";
+const SECRET_KEY = process.env.SECRET_KEY || "your_secret_key";
 
-// JSON fayldan foydalanuvchi ma'lumotlarini olish
+// Helper functions to handle user data
 function getUsers() {
   const data = fs.readFileSync("./users.json");
   return JSON.parse(data).users;
 }
 
-// JSON faylga foydalanuvchi ma'lumotlarini yozish
 function saveUsers(users) {
   fs.writeFileSync("./users.json", JSON.stringify({ users }, null, 2));
 }
 
-// JSON fayldan destination ma'lumotlarini olish
+// Helper functions to handle destinations data
 function getDestinations() {
   try {
     const data = fs.readFileSync("./destinations.json");
     return JSON.parse(data);
   } catch (error) {
-    console.error("Error reading destination.json", error);
+    console.error("Error reading destinations.json", error);
     return [];
   }
 }
 
-// JSON fayldan offer ma'lumotlarini olish
+function saveDestinations(destinations) {
+  fs.writeFileSync("./destinations.json", JSON.stringify(destinations, null, 2));
+}
+
+// Helper functions to handle offers data
 function getOffers() {
   try {
     const data = fs.readFileSync("./offers.json");
@@ -47,20 +50,11 @@ function getOffers() {
   }
 }
 
-// JSON faylga destination ma'lumotlarini yozish
-function saveDestinations(destinations) {
-  fs.writeFileSync(
-    "./destinations.json",
-    JSON.stringify({ destinations }, null, 2)
-  );
-}
-
-// JSON faylga offer ma'lumotlarini yozish
 function saveOffers(offers) {
   fs.writeFileSync("./offers.json", JSON.stringify({ offers }, null, 2));
 }
 
-// Helper function to create a slug from title
+// Helper function to create a slug from a title
 function createSlug(title) {
   return title
     .toLowerCase()
@@ -68,13 +62,13 @@ function createSlug(title) {
     .replace(/[^a-z0-9\-]/g, "");
 }
 
-// Register endpoint (foydalanuvchilarni 'users.json'ga saqlash)
+// Register endpoint
 app.post("/register", (req, res) => {
   const { username, email, password } = req.body;
   const users = getUsers();
 
   if (users.some((user) => user.email === email)) {
-    return res.status(400).json({ message: "Email allaqachon mavjud" });
+    return res.status(400).json({ message: "Email already exists" });
   }
 
   const hashedPassword = bcrypt.hashSync(password, 10);
@@ -88,39 +82,32 @@ app.post("/register", (req, res) => {
   users.push(newUser);
   saveUsers(users);
 
-  res
-    .status(201)
-    .json({ message: "Foydalanuvchi muvaffaqiyatli ro'yxatdan o'tdi" });
+  res.status(201).json({ message: "User registered successfully" });
 });
 
-
-
-
-
-
-// Login endpoint (foydalanuvchilarni autentifikatsiya qilish)
+// Login endpoint
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
   const users = getUsers();
 
   const user = users.find((user) => user.email === email);
   if (!user) {
-    return res.status(400).json({ message: "Email yoki parol xato" });
+    return res.status(400).json({ message: "Invalid email or password" });
   }
 
   const isPasswordValid = bcrypt.compareSync(password, user.password);
   if (!isPasswordValid) {
-    return res.status(400).json({ message: "Email yoki parol xato" });
+    return res.status(400).json({ message: "Invalid email or password" });
   }
 
   const token = jwt.sign({ id: user.id, email: user.email }, SECRET_KEY, {
     expiresIn: "1h",
   });
 
-  res.status(200).json({ message: "Kirish muvaffaqiyatli", token });
+  res.status(200).json({ message: "Login successful", token });
 });
 
-// Middleware for protected routes (only for authenticated users)
+// Middleware for protected routes
 function authenticateToken(req, res, next) {
   const token = req.headers["authorization"];
   if (!token) return res.sendStatus(401);
@@ -132,29 +119,24 @@ function authenticateToken(req, res, next) {
   });
 }
 
-// Public route: Get destinations (registratsiya talab qilinmaydi)
+// Public route: Get destinations
 app.get("/destinations", (req, res) => {
   const destinations = getDestinations();
   res.json(destinations);
 });
 
-// Public route: Get offers (registratsiya talab qilinmaydi)
+// Public route: Get offers
 app.get("/offers", (req, res) => {
   const offers = getOffers();
   res.json(offers);
 });
 
-// Protected route: Create destination (autentifikatsiyadan o'tgan foydalanuvchilar uchun)
-app.post("/destinations", authenticateToken, (req, res) => {
+// Public route: Create destination
+app.post("/destinations", (req, res) => {
   const { name, country, image, description } = req.body;
   const destinations = getDestinations();
   const slug = createSlug(name);
-  const today = new Date();
-  const formattedDate = today
-    .toLocaleDateString("en-GB")
-    .split("/")
-    .reverse()
-    .join("-");
+  const today = new Date().toISOString().split("T")[0];
 
   const newDestination = {
     id: destinations.length + 1,
@@ -163,38 +145,31 @@ app.post("/destinations", authenticateToken, (req, res) => {
     country,
     image,
     description,
-    authorId: req.user.id,
-    createdAt: formattedDate,
+    createdAt: today,
   };
 
   destinations.push(newDestination);
   saveDestinations(destinations);
 
   res.status(201).json({
-    message: "Destination muvaffaqiyatli yaratildi",
+    message: "Destination created successfully",
     destination: newDestination,
   });
 });
 
-// Protected route: Update destination
-app.put("/destinations/:id", authenticateToken, (req, res) => {
+// Public route: Update destination
+app.put("/destinations/:id", (req, res) => {
   let destinations = getDestinations();
   const destinationId = parseInt(req.params.id);
   const { name, country, image, description } = req.body;
-  const slug = createSlug(name);
 
-  const destinationIndex = destinations.findIndex(
-    (destination) =>
-      destination.id === destinationId && destination.authorId === req.user.id
-  );
-
+  const destinationIndex = destinations.findIndex(d => d.id === destinationId);
   if (destinationIndex === -1) {
-    return res
-      .status(404)
-      .json({ message: "Destination topilmadi yoki sizning emas" });
+    return res.status(404).json({ message: "Destination not found" });
   }
 
-  const updatedDestination = {
+  const slug = createSlug(name);
+  destinations[destinationIndex] = {
     ...destinations[destinationIndex],
     name,
     slug,
@@ -203,51 +178,39 @@ app.put("/destinations/:id", authenticateToken, (req, res) => {
     description,
   };
 
-  destinations[destinationIndex] = updatedDestination;
   saveDestinations(destinations);
 
   res.status(200).json({
-    message: "Destination muvaffaqiyatli yangilandi",
-    destination: updatedDestination,
+    message: "Destination updated successfully",
+    destination: destinations[destinationIndex],
   });
 });
 
-// Protected route: Delete destination
-app.delete("/destinations/:id", authenticateToken, (req, res) => {
+// Public route: Delete destination
+app.delete("/destinations/:id", (req, res) => {
   let destinations = getDestinations();
   const destinationId = parseInt(req.params.id);
 
-  const destinationIndex = destinations.findIndex(
-    (destination) =>
-      destination.id === destinationId && destination.authorId === req.user.id
-  );
-
+  const destinationIndex = destinations.findIndex(d => d.id === destinationId);
   if (destinationIndex === -1) {
-    return res
-      .status(404)
-      .json({ message: "Destination topilmadi yoki sizning emas" });
+    return res.status(404).json({ message: "Destination not found" });
   }
 
   destinations.splice(destinationIndex, 1);
   saveDestinations(destinations);
 
-  res.status(200).json({ message: "Destination muvaffaqiyatli o'chirildi" });
+  res.status(200).json({ message: "Destination deleted successfully" });
 });
 
-// Protected route: Create offer (autentifikatsiyadan o'tgan foydalanuvchilar uchun)
-app.post("/offers", authenticateToken, (req, res) => {
+// Public route: Create offer
+app.post("/offers", (req, res) => {
   const { title, details, image, rating, price, destinationId } = req.body;
   const offers = getOffers();
   const slug = createSlug(title);
-  const today = new Date();
-  const formattedDate = today
-    .toLocaleDateString("en-GB")
-    .split("/")
-    .reverse()
-    .join("-");
+  const today = new Date().toISOString().split("T")[0];
 
   const newOffer = {
-    id: destinationId*100+1,
+    id: offers.length + 1,
     title,
     slug,
     details,
@@ -255,36 +218,28 @@ app.post("/offers", authenticateToken, (req, res) => {
     rating,
     price,
     destinationId,
-    CreatedUserId: req.user.id,
-    createdAt: formattedDate,
+    createdAt: today,
   };
 
   offers.push(newOffer);
   saveOffers(offers);
 
-  res
-    .status(201)
-    .json({ message: "Offer muvaffaqiyatli yaratildi", offer: newOffer });
+  res.status(201).json({ message: "Offer created successfully", offer: newOffer });
 });
 
-// Protected route: Update offer
-app.put("/offers/:id", authenticateToken, (req, res) => {
+// Public route: Update offer
+app.put("/offers/:id", (req, res) => {
   let offers = getOffers();
   const offerId = parseInt(req.params.id);
   const { title, details, image, rating, price } = req.body;
-  const slug = createSlug(title);
 
-  const offerIndex = offers.findIndex(
-    (offer) => offer.id === offerId && offer.CreatedUserId === req.user.id
-  );
-
+  const offerIndex = offers.findIndex(o => o.id === offerId);
   if (offerIndex === -1) {
-    return res
-      .status(404)
-      .json({ message: "Offer topilmadi yoki sizning emas" });
+    return res.status(404).json({ message: "Offer not found" });
   }
 
-  const updatedOffer = {
+  const slug = createSlug(title);
+  offers[offerIndex] = {
     ...offers[offerIndex],
     title,
     slug,
@@ -294,36 +249,55 @@ app.put("/offers/:id", authenticateToken, (req, res) => {
     price,
   };
 
-  offers[offerIndex] = updatedOffer;
   saveOffers(offers);
 
-  res
-    .status(200)
-    .json({ message: "Offer muvaffaqiyatli yangilandi", offer: updatedOffer });
+  res.status(200).json({ message: "Offer updated successfully", offer: offers[offerIndex] });
 });
 
-// Protected route: Delete offer
-app.delete("/offers/:id", authenticateToken, (req, res) => {
+// Public route: Delete offer
+app.delete("/offers/:id", (req, res) => {
   let offers = getOffers();
   const offerId = parseInt(req.params.id);
 
-  const offerIndex = offers.findIndex(
-    (offer) => offer.id === offerId && offer.CreatedUserId === req.user.id
-  );
-
+  const offerIndex = offers.findIndex(o => o.id === offerId);
   if (offerIndex === -1) {
-    return res
-      .status(404)
-      .json({ message: "Offer topilmadi yoki sizning emas" });
+    return res.status(404).json({ message: "Offer not found" });
   }
 
   offers.splice(offerIndex, 1);
   saveOffers(offers);
 
-  res.status(200).json({ message: "Offer muvaffaqiyatli o'chirildi" });
+  res.status(200).json({ message: "Offer deleted successfully" });
 });
 
-// Serverni ishga tushirish
+
+
+
+
+
+// Protected route: Book an offer
+app.post("/offers/:id/book", authenticateToken, (req, res) => {
+  const offers = getOffers();
+  const offerId = parseInt(req.params.id);
+
+  const offer = offers.find(o => o.id === offerId);
+  if (!offer) {
+    return res.status(404).json({ message: "Offer not found" });
+  }
+
+  const booking = {
+    offerId: offer.id,
+    userId: req.user.id,
+    bookedAt: new Date().toISOString(),
+  };
+
+  // Save booking to a separate file or database if needed
+  // This example just returns the booking response
+
+  res.status(200).json({ message: "Offer booked successfully", booking });
+});
+
+// Start the server
 app.listen(port, () => {
-  console.log(`Server ${port}-portda ishga tushdi`);
+  console.log(`Server running on port ${port}`);
 });
