@@ -28,7 +28,7 @@ function saveUsers(users) {
 function getDestinations() {
   try {
     const data = fs.readFileSync("./destinations.json");
-    return JSON.parse(data);
+    return JSON.parse(data).destinations;
   } catch (error) {
     console.error("Error reading destinations.json", error);
     return [];
