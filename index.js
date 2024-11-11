@@ -36,7 +36,7 @@ function getDestinations() {
 }
 
 function saveDestinations(destinations) {
-  fs.writeFileSync("./destinations.json", JSON.stringify(destinations, null, 2));
+  fs.writeFileSync("./destinations.json", JSON.stringify({destinations}, null, 2));
 }
 
 // Helper functions to handle offers data
